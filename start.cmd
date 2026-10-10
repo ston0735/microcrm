@@ -1,0 +1,5 @@
+@echo off
+cd /d "%~dp0"
+node --env-file-if-exists=.env local-server.mjs
+pause
+
