@@ -5,6 +5,8 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,fail} from './domain.mjs';
 import {passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject} from './cloud-db.mjs';
 import {search,chat,createDraft,resolveDraft} from './cloud-assistant.mjs';
+import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
+import {quickOpportunity,csvExport} from './workflow.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 function send(res,status,data,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data));}
 async function body(req){if(req.body!==undefined)return typeof req.body==='string'?JSON.parse(req.body):req.body;let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>8*1024*1024)fail('請求超過 8 MB',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{fail('JSON 格式錯誤');}}
@@ -38,13 +40,17 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==s.csrf)fail('安全驗證失敗，請重新登入',403);
  if(path==='/api/me'&&req.method==='GET')return send(res,200,{user,csrf:s.csrf});
  if(path==='/api/logout'&&req.method==='POST'){(await db.prepare('DELETE FROM sessions WHERE id=?').run(s.id));return send(res,200,{ok:true},{'Set-Cookie':cookie('',0)});}
+ if(path==='/api/company-lookup'&&req.method==='GET'){writable(user);await limitLookup(db,user.id);return send(res,200,await lookupCompany(url.searchParams.get('q')));}
+ if(path==='/api/company-enrich'&&req.method==='POST'){writable(user);await limitLookup(db,user.id);return send(res,200,await enrichCompany(await body(req)));}
+ if(path==='/api/opportunities/quick-create'&&req.method==='POST'){writable(user);return send(res,201,await quickOpportunity(db,{list,save,transaction},user,await body(req)));}
+ const exp=/^\/api\/export\/([a-z]+)$/.exec(path);if(exp&&req.method==='GET'&&ENTITIES.includes(exp[1])){admin(user);res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${exp[1]}.csv"`,'Cache-Control':'no-store'});return res.end(csvExport(exp[1],await list(db,exp[1])));}
  if(path==='/api/data'&&req.method==='GET') {
  const data={};for(const t of ENTITIES)data[t]=await (await list(db,t));
  data.users=(await db.prepare('SELECT id,name,email,role FROM users ORDER BY name').all());
  data.drafts=(await db.prepare('SELECT * FROM drafts WHERE userId=? ORDER BY createdAt DESC LIMIT 100').all(user.id)).map(d=>({...d,payload:JSON.parse(d.payload)}));
  data.chats=(await db.prepare('SELECT role,content,createdAt FROM chats WHERE userId=? ORDER BY createdAt DESC LIMIT 30').all(user.id)).reverse();
  data.audit=user.role==='admin'?(await db.prepare('SELECT a.*,u.name actor FROM audit a JOIN users u ON u.id=a.userId ORDER BY a.createdAt DESC LIMIT 200').all()):[];
- return send(res,200,{...data,meta:{mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',seedDemo:process.env.SEED_DEMO==='1',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
+ return send(res,200,{...data,meta:{version:'1.0.0-rc.1',mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',seedDemo:process.env.SEED_DEMO==='1',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
  }
  if(path==='/api/search'&&req.method==='GET')return send(res,200,(await search(db,url.searchParams.get('q'))));
  if(path==='/api/chat'&&req.method==='POST'){const b=await body(req);return send(res,200,await (await chat(db,user,b.message)));}
@@ -93,7 +99,8 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  }
  fail('找不到此操作',404);
  }
- const assets={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};if(!assets[path]||req.method!=='GET')fail('找不到頁面',404);
+ const assets={'/':'index.html','/app.js':'app.js','/company-form.js':'company-form.js','/style.css':'style.css'};if(!assets[path]||req.method!=='GET')fail('找不到頁面',404);
  const content=readFileSync(join(root,'public',assets[path]));res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript; charset=utf-8':path.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8'});res.end(content);
  }catch(e){const message=/FOREIGN KEY/.test(e.message)?'此資料有關聯紀錄，請先處理關聯後再刪除':/UNIQUE/.test(e.message)?'資料已存在':e.status?e.message:'伺服器處理失敗';if(!e.status&&!/constraint/i.test(e.message))console.error(e);if(!res.headersSent)send(res,e.status||(/constraint/i.test(e.message)?409:500),{error:message});else res.end();}
 }
+

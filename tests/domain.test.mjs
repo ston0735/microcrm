@@ -53,3 +53,4 @@ test('Responses adapter: mocked tool cycle only proposes a draft, reports provid
  globalThis.fetch=async()=>({ok:false,status:401});await assert.rejects(()=>chat(db,admin,'查詢'),/AI 服務失敗/);
  }finally {globalThis.fetch=originalFetch;if(key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=key;db.close();rmSync(dir,{recursive:true,force:true});}
 });
+

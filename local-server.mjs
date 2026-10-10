@@ -6,6 +6,8 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,fail} from './domain.mjs';
 import {openDatabase,seed,passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject} from './db.mjs';
 import {search,chat,createDraft,resolveDraft} from './assistant.mjs';
+import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
+import {quickOpportunity,csvExport} from './workflow.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
 const dataDir=resolve(process.env.DATA_DIR||join(root,'data'));
 const db=openDatabase(dataDir);seed(db);mkdirSync(join(dataDir,'uploads'),{recursive:true});
@@ -42,13 +44,17 @@ const server=http.createServer(async(req,res)=>{
  if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==s.csrf)fail('安全驗證失敗，請重新登入',403);
  if(path==='/api/me'&&req.method==='GET')return send(res,200,{user,csrf:s.csrf});
  if(path==='/api/logout'&&req.method==='POST'){db.prepare('DELETE FROM sessions WHERE id=?').run(s.id);return send(res,200,{ok:true},{'Set-Cookie':cookie('',0)});}
+ if(path==='/api/company-lookup'&&req.method==='GET'){writable(user);await limitLookup(db,user.id);return send(res,200,await lookupCompany(url.searchParams.get('q')));}
+ if(path==='/api/company-enrich'&&req.method==='POST'){writable(user);await limitLookup(db,user.id);return send(res,200,await enrichCompany(await body(req)));}
+ if(path==='/api/opportunities/quick-create'&&req.method==='POST'){writable(user);const tx=async(db,fn)=>{db.exec('BEGIN IMMEDIATE');try{const r=await fn();db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}};return send(res,201,await quickOpportunity(db,{list,save,transaction:tx},user,await body(req)));}
+ const exp=/^\/api\/export\/([a-z]+)$/.exec(path);if(exp&&req.method==='GET'&&ENTITIES.includes(exp[1])){admin(user);res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${exp[1]}.csv"`,'Cache-Control':'no-store'});return res.end(csvExport(exp[1],list(db,exp[1])));}
  if(path==='/api/data'&&req.method==='GET') {
  const data=Object.fromEntries(ENTITIES.map(t=>[t,list(db,t)]));
  data.users=db.prepare('SELECT id,name,email,role FROM users ORDER BY name').all();
  data.drafts=db.prepare('SELECT * FROM drafts WHERE userId=? ORDER BY createdAt DESC LIMIT 100').all(user.id).map(d=>({...d,payload:JSON.parse(d.payload)}));
  data.chats=db.prepare('SELECT role,content,createdAt FROM chats WHERE userId=? ORDER BY createdAt DESC LIMIT 30').all(user.id).reverse();
  data.audit=user.role==='admin'?db.prepare('SELECT a.*,u.name actor FROM audit a JOIN users u ON u.id=a.userId ORDER BY a.createdAt DESC LIMIT 200').all():[];
- return send(res,200,{...data,meta:{mode:process.env.OPENAI_API_KEY?'live':'demo',seedDemo:process.env.SEED_DEMO!=='0',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
+ return send(res,200,{...data,meta:{version:'1.0.0-rc.1',mode:process.env.OPENAI_API_KEY?'live':'demo',seedDemo:process.env.SEED_DEMO!=='0',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
  }
  if(path==='/api/search'&&req.method==='GET')return send(res,200,search(db,url.searchParams.get('q')));
  if(path==='/api/chat'&&req.method==='POST'){const b=await body(req);return send(res,200,await chat(db,user,b.message));}
@@ -97,7 +103,7 @@ const server=http.createServer(async(req,res)=>{
  }
  fail('找不到此操作',404);
  }
- const assets={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};if(!assets[path]||req.method!=='GET')fail('找不到頁面',404);
+ const assets={'/':'index.html','/app.js':'app.js','/company-form.js':'company-form.js','/style.css':'style.css'};if(!assets[path]||req.method!=='GET')fail('找不到頁面',404);
  const content=readFileSync(join(root,'public',assets[path]));res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript; charset=utf-8':path.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8'});res.end(content);
  }catch(e){const message=/FOREIGN KEY/.test(e.message)?'此資料有關聯紀錄，請先處理關聯後再刪除':/UNIQUE/.test(e.message)?'資料已存在':e.status?e.message:'伺服器處理失敗';if(!e.status&&!/constraint/i.test(e.message))console.error(e);if(!res.headersSent)send(res,e.status||(/constraint/i.test(e.message)?409:500),{error:message});else res.end();}
 });

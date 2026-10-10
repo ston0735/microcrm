@@ -40,3 +40,4 @@ test('HTTP: login, CSRF, permissions, CRUD, file text search, history and sessio
  }finally {child.kill();await new Promise(r=>child.once('exit',r));rmSync(dir,{recursive:true,force:true});}
 });
 
+

@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {ENTITIES,FIELDS,REF,validate,fail,TEMPLATES} from './domain.mjs';
+import {existingCompany} from './workflow.mjs';
 export {passwordHash,passwordCheck} from './db.mjs';
 
 // Only allowlisted identifiers are interpolated. All content uses SQL parameters.
@@ -47,6 +48,7 @@ export async function save(db,type,input,userId,id=null,version=null,extra={}) {
  const before=id?await get(db,type,id):null;if(id&&!before)fail('資料不存在',404);
  if(before&&version!==before.version)fail('資料已被修改，請重新整理後再操作',409);
  const data={...await validateAsync(db,type,input,before||{}),...extra};
+ if(type==='companies'&&existingCompany(await list(db,type),data,id))fail('公司名稱或統編已存在，請選擇既有公司',409);
  if(before?.companyId&&data.companyId!==before.companyId){const field={opportunities:'opportunityId',projects:'projectId',visits:'visitId',meetings:'meetingId'}[type];if(field)for(const t of ENTITIES)if(FIELDS[t][field]&&await db.prepare(`SELECT id FROM ${t} WHERE ${field}=? LIMIT 1`).get(id))fail('此紀錄已有關聯資料，不能改到其他公司');}
  if(type==='opportunities'&&before&&await db.prepare('SELECT id FROM projects WHERE sourceOpportunityId=?').get(id))if(data.stage!=='結案'||data.outcome!=='成交'||data.product!==before.product)fail('已轉專案的成交商機不能重新開案或變更產品');
  if(type==='projects'&&before?.opportunityId)data.opportunityId=before.opportunityId;
@@ -60,3 +62,4 @@ export async function save(db,type,input,userId,id=null,version=null,extra={}) {
 }
 export async function createProject(db,input,userId,extra={}){const p=await save(db,'projects',input,userId,null,null,extra);for(const [i,name] of TEMPLATES[p.product].entries())await save(db,'milestones',{name,projectId:p.id,stage:'待辦',description:`第 ${i+1} 階段，完成後由負責人確認驗收。`},userId);return p;}
 export async function convert(db,id,userId){const o=await get(db,'opportunities',id);if(!o)fail('商機不存在',404);if(o.stage!=='結案'||o.outcome!=='成交')fail('僅成交商機可以轉專案');const existing=await db.prepare('SELECT * FROM projects WHERE sourceOpportunityId=?').get(id);if(existing)return unpack(existing);return transaction(db,async()=>{const p=await createProject(db,{name:o.name,companyId:o.companyId,product:o.product,ownerId:o.ownerId,stage:'啟動規劃',description:o.needs,risks:o.risks},userId,{opportunityId:id});await audit(db,userId,'convert','opportunities',id,o,{projectId:p.id});return p;});}
+

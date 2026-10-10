@@ -12,7 +12,7 @@ export default async function handler(req,res){
   client=new pg.Client({connectionString:process.env.DATABASE_URL,connectionTimeoutMillis:10000});await client.connect();
   await client.query('BEGIN');await client.query('SET LOCAL search_path TO microcrm');
   await client.query("SET LOCAL statement_timeout TO '15000'");
-  if(!['GET','HEAD'].includes(req.method))await client.query('SELECT pg_advisory_xact_lock(73142026)');
+  if(!['GET','HEAD'].includes(req.method)&&new URL(req.url,'https://localhost').pathname!=='/api/company-enrich')await client.query('SELECT pg_advisory_xact_lock(73142026)');
   await handle(req,result,postgresAdapter(client));
   // Failed logins persist the rate counter; all other failed writes roll back.
   const keep=result.statusCode<400||(new URL(req.url,'https://localhost').pathname==='/api/login'&&result.statusCode===401);
@@ -23,3 +23,4 @@ export default async function handler(req,res){
   if(!res.headersSent){res.writeHead(503,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify({error:'雲端資料庫尚未就緒或暫時無法連線，請檢查 DATABASE_URL 與部署的初始化結果。'}));}
  }finally{if(client)await client.end().catch(()=>{});}
 }
+

@@ -24,3 +24,4 @@ try{
  }
  await client.query('COMMIT');console.log('microcrm 雲端資料表已就緒；既有資料與密碼不會被示例種子覆蓋。');
 }catch(e){try{await client.query('ROLLBACK');}catch{}console.error('microcrm 資料庫初始化失敗；請檢查專案環境變數與資料庫權限。');process.exitCode=1;}finally{await client.end();}
+

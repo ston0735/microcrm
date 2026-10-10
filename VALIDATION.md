@@ -20,3 +20,4 @@
 cloud-db、cloud-handler、cloud-assistant、cloud-setup、api/index 與前端 JavaScript 語法檢查通過。本次完整測試的 HTTP 項目因本機 TCP EACCES 無法完成；下方先前本機版的驗證屬於歷史結果。
 
 未完成：pg 安裝、真實 PostgreSQL schema／交易／SSL、Vercel rewrite／Cookie／附件、真實 AI、重新部署持久化、正式備份還原。不能把 Vercel 的 README 部署標為 CRM 驗收完成。
+

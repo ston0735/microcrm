@@ -10,7 +10,7 @@ import {handle} from '../cloud-handler.mjs';
 // This verifies asynchronous application logic, not a real PostgreSQL deployment.
 test('cloud async workflow preserves conversion, draft confirmation, roles, attachments and login',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'microcrm-cloud-test-')),raw=openDatabase(dir);seed(raw);
- raw.exec('CREATE TABLE login_attempts(id TEXT PRIMARY KEY,count INTEGER,time INTEGER); CREATE TABLE attachments(id TEXT PRIMARY KEY,bytes BLOB);');
+ raw.exec('CREATE TABLE attachments(id TEXT PRIMARY KEY,bytes BLOB);');
  const db={client:{async query(q){raw.exec(q);}},prepare(q){const stmt=raw.prepare(q.replaceAll('ILIKE','LIKE'));return {async get(...v){return stmt.get(...v);},async all(...v){return stmt.all(...v);},async run(...v){return stmt.run(...v);}};}};
  try{
   const user=raw.prepare("SELECT * FROM users WHERE role='admin'").get(),viewer=raw.prepare("SELECT * FROM users WHERE role='viewer'").get();
@@ -39,3 +39,4 @@ test('PostgreSQL adapter quotes metadata and parameterizes values',async()=>{
  assert.equal(capture.sql,'SELECT "userId","createdAt" FROM sessions WHERE id=$1 AND expires>$2');assert.equal(capture.values[0],"'; DROP TABLE users;--");
  assert.equal(quoteSql('SELECT companyId FROM projects'),'SELECT "companyId" FROM projects');
 });
+

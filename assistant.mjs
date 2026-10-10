@@ -89,3 +89,4 @@ export async function chat(db,user,message) {
  for(const [role,content] of [['user',message],['assistant',answer]])db.prepare('INSERT INTO chats VALUES(?,?,?,?,?)').run(randomUUID(),user.id,role,content,new Date().toISOString());
  return {mode,answer,drafts};
 }
+

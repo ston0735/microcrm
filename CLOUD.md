@@ -57,3 +57,4 @@ Node.js 24 下，原本的本機版仍可 `node --env-file-if-exists=.env local-
 - 設定資料庫備份／還原與容量監測；不要將示例金額解讀為公司真實業績。
 
 平台文件：[Vercel Node.js Functions](https://vercel.com/docs/functions/runtimes/node-js)、[node-postgres transactions](https://node-postgres.com/features/transactions)。
+

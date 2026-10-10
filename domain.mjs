@@ -10,7 +10,7 @@ export const TEMPLATES = {
 };
 // Field allowlists also drive the form UI. IDs and server metadata cannot be supplied as content.
 export const FIELDS = {
- companies: {name:'公司名稱*',industry:'產業',website:'網站',taxId:'統一編號',address:'地址',notes:'備註'},
+ companies: {name:'公司名稱*',industry:'產業',website:'網站',taxId:'統一編號',address:'地址',phone:'公司電話',notes:'備註／公開資料來源'},
  contacts: {name:'姓名*',companyId:'公司*',title:'職稱',email:'Email',phone:'電話',decisionRole:'決策角色',notes:'備註'},
  opportunities: {name:'商機名稱*',companyId:'公司*',product:'產品*',stage:'階段*',outcome:'結案結果',amount:'預估金額（TWD）',probability:'成交機率（%）',dueDate:'預計簽約日',ownerId:'負責人*',needs:'需求',risks:'風險',nextStep:'下一步',lossReason:'未成交原因'},
  projects: {name:'專案名稱*',companyId:'公司*',product:'產品*',stage:'階段*',ownerId:'負責人*',dueDate:'交付日期',description:'專案範圍',risks:'風險'},
@@ -39,6 +39,8 @@ export function validate(db,type,input,existing={}) {
    if (['amount','budget','probability'].includes(key) && data[key] && (!Number.isFinite(Number(data[key])) || Number(data[key])<0 || (key==='probability' && Number(data[key])>100))) fail(`${label}格式錯誤`);
  }
  if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) fail('Email 格式錯誤');
+ if(type==='companies'&&data.taxId&&!/^\d{8}$/.test(data.taxId))fail('台灣統一編號須為 8 碼數字');
+ for(const [key,value] of Object.entries(data))if(value&&(/Date$/.test(key)||['date','followUpAt'].includes(key))){const [y,m,d]=value.slice(0,10).split('-').map(Number);const actual=new Date(Date.UTC(y,m-1,d)).toISOString().slice(0,10);if(actual!==value.slice(0,10))fail('日期不存在，請確認年月日');}
  if (data.website && !/^https?:\/\//.test(data.website)) fail('網站需以 http:// 或 https:// 開頭');
  if (data.product && !PRODUCTS.includes(data.product)) fail('產品類型錯誤');
  const stages=type==='opportunities'?SALES:type==='projects'?PROJECT:['tasks','milestones'].includes(type)?TASK:null;
@@ -58,3 +60,4 @@ export function validate(db,type,input,existing={}) {
  }
  return data;
 }
+

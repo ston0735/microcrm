@@ -3,6 +3,7 @@ import {mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {randomUUID,randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
 import {ENTITIES,FIELDS,REF,validate,fail,TEMPLATES} from './domain.mjs';
+import {existingCompany} from './workflow.mjs';
 export function passwordHash(password) {const salt=randomBytes(16).toString('hex'); return salt+':'+scryptSync(password,salt,64).toString('hex');}
 export function passwordCheck(password,hash) {const [salt,key]=hash.split(':');return timingSafeEqual(scryptSync(password,salt,64),Buffer.from(key,'hex'));}
 export function openDatabase(directory) {
@@ -12,7 +13,8 @@ export function openDatabase(directory) {
  CREATE TABLE IF NOT EXISTS sessions(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),csrf TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),action TEXT NOT NULL,entity TEXT NOT NULL,recordId TEXT,before TEXT,after TEXT,createdAt TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),payload TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',createdAt TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS chats(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),role TEXT NOT NULL,content TEXT NOT NULL,createdAt TEXT NOT NULL);`);
+ CREATE TABLE IF NOT EXISTS chats(id TEXT PRIMARY KEY,userId TEXT NOT NULL REFERENCES users(id),role TEXT NOT NULL,content TEXT NOT NULL,createdAt TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS login_attempts(id TEXT PRIMARY KEY,count INTEGER NOT NULL,time INTEGER NOT NULL);`);
  for (const type of ENTITIES) {
    const refs=Object.keys(FIELDS[type]).filter(k=>REF[k]).map(k=>`${k} TEXT REFERENCES ${REF[k]}(id)`).join(',');
    db.exec(`CREATE TABLE IF NOT EXISTS ${type}(id TEXT PRIMARY KEY,payload TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL${refs?','+refs:''}${type==='projects'?',sourceOpportunityId TEXT UNIQUE REFERENCES opportunities(id)':''});`);
@@ -29,6 +31,7 @@ export function save(db,type,input,userId,id=null,version=null,extra={}) {
  const before=id?get(db,type,id):null;if(id&&!before)fail('資料不存在',404);
  if(before && version!==before.version)fail('資料已被修改，請重新整理後再操作',409);
  const data={...validate(db,type,input,before||{}),...extra};
+ if(type==='companies'&&existingCompany(list(db,type),data,id))fail('公司名稱或統編已存在，請選擇既有公司',409);
  if(before?.companyId && data.companyId!==before.companyId) {
    const refField={opportunities:'opportunityId',projects:'projectId',visits:'visitId',meetings:'meetingId'}[type];
    if(refField && ENTITIES.some(t=>FIELDS[t][refField] && db.prepare(`SELECT id FROM ${t} WHERE ${refField}=? LIMIT 1`).get(before.id))) fail('此紀錄已有關聯資料，不能改到其他公司');
@@ -88,3 +91,4 @@ export function seed(db) {
  save(db,'meetings',{name:'官網進度會議（示例）',companyId:c1.id,projectId:p.id,date:'2026-10-08',attendees:'客戶窗口、專案負責人（示例）',transcript:'窗口：素材下週交付。PM：表單先以測試資料完成串接。窗口：同意先驗收表單功能。',summary:'素材延遲，表單串接持續進行。',decisions:'先驗收表單功能',changes:'素材交付延後一週',risks:'素材可能影響整體上線時間',todos:'追蹤素材；完成表單測試',ownerId:member},admin);
  });
 }
+
