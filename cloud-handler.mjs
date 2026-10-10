@@ -8,6 +8,8 @@ import {search,chat,createDraft,resolveDraft} from './cloud-assistant.mjs';
 import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
 import {quickOpportunity,csvExport} from './workflow.mjs';
 const root=dirname(fileURLToPath(import.meta.url));
+// Unknown emails still pay the scrypt cost, so response time does not reveal which accounts exist.
+const DUMMY_HASH=passwordHash(randomBytes(16).toString('hex'));
 function send(res,status,data,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data));}
 async function body(req){if(req.body!==undefined)return typeof req.body==='string'?JSON.parse(req.body):req.body;let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>8*1024*1024)fail('請求超過 8 MB',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{fail('JSON 格式錯誤');}}
 
@@ -30,7 +32,7 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  if(Date.now()-prior.time>600000){prior.count=0;prior.time=Date.now();}if(prior.count>=15)fail('嘗試過於頻繁，請稍後再試',429);
  const b=await body(req);if(typeof b.email!=='string'||typeof b.password!=='string'||b.password.length>200)fail('帳號密碼格式錯誤');
  const u=(await db.prepare('SELECT * FROM users WHERE email=?').get(b.email.trim().toLowerCase()));
- if(!u||!passwordCheck(b.password,u.password)){prior.count++;await (await db.prepare('INSERT INTO login_attempts VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET count=EXCLUDED.count,time=EXCLUDED.time').run(key,prior.count,prior.time));fail('帳號或密碼錯誤',401);}
+ const ok=passwordCheck(b.password,u?u.password:DUMMY_HASH);if(!u||!ok){prior.count++;await (await db.prepare('INSERT INTO login_attempts VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET count=EXCLUDED.count,time=EXCLUDED.time').run(key,prior.count,prior.time));fail('帳號或密碼錯誤',401);}
  await (await db.prepare('DELETE FROM login_attempts WHERE id=?').run(key));const id=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');
  (await db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now()));(await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(id,u.id,csrf,Date.now()+28800000));
  (await audit(db,u.id,'login','users',u.id,null,null));return send(res,200,{user:{id:u.id,name:u.name,role:u.role,email:u.email},csrf},{'Set-Cookie':cookie(id,28800)});
