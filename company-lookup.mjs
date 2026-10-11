@@ -13,7 +13,7 @@ export function registryUrl(query){
 export async function lookupCompany(query,fetcher=fetch){
  const url=registryUrl(query),key=url.href,cached=cache.get(key);if(cached&&cached.expires>Date.now())return {...cached.result,cached:true};
  let rows;
- try{const response=await fetcher(url,{signal:AbortSignal.timeout(12000),headers:{Accept:'application/json'},redirect:'error'});if(!response.ok)throw new Error('upstream');const text=await response.text();if(text.length>1000000)throw new Error('size');rows=JSON.parse(text);if(!Array.isArray(rows))throw new Error('shape');}
+ try{const response=await fetcher(url,{signal:AbortSignal.timeout(12000),headers:{Accept:'application/json'},redirect:'error'});if(!response.ok)throw new Error('upstream');const text=await response.text();if(text.length>1000000)throw new Error('size');rows=text.trim()?JSON.parse(text):[];if(!Array.isArray(rows))throw new Error('shape');}
  catch(e){const code=String(e?.cause?.code||e?.code||e?.message||'unknown').slice(0,60);console.error('registry lookup failed',code);fail('經濟部公開資料服務暫時無法查詢（原因代碼：'+code+'）；你仍可手動填寫公司名稱並保存商機。',502);}
  const result={provider:'經濟部商業發展署',mode:'registry',queriedAt:new Date().toISOString(),source:REGISTRY_SOURCE,candidates:rows.slice(0,10).filter(r=>r.Company_Name&&/^\d{8}$/.test(String(r.Business_Accounting_NO))).map(r=>({name:clean(r.Company_Name),taxId:clean(r.Business_Accounting_NO),address:clean(r.Company_Location),phone:'',website:'',status:clean(r.Company_Status_Desc),sourceUrl:url.href})),notice:'電話與官網未包含在這項公司登記資料中，將保留空白；名稱查詢僅涵蓋營業中的本國公司，多筆結果請自行選擇。'};
  if(fetcher===fetch){if(cache.size>=100)cache.delete(cache.keys().next().value);cache.set(key,{result,expires:Date.now()+300000});}return result;

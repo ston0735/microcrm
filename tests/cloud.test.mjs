@@ -40,3 +40,9 @@ test('PostgreSQL adapter quotes metadata and parameterizes values',async()=>{
  assert.equal(quoteSql('SELECT companyId FROM projects'),'SELECT "companyId" FROM projects');
 });
 
+
+test('registry empty body (no match) returns no candidates instead of failing',async()=>{
+ const {lookupCompany}=await import('../company-lookup.mjs');
+ const r=await lookupCompany('不存在的公司名稱',async()=>({ok:true,text:async()=>''}));
+ assert.deepEqual(r.candidates,[]);
+});
