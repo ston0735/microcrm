@@ -52,7 +52,7 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  data.drafts=(await db.prepare('SELECT * FROM drafts WHERE userId=? ORDER BY createdAt DESC LIMIT 100').all(user.id)).map(d=>({...d,payload:JSON.parse(d.payload)}));
  data.chats=(await db.prepare('SELECT role,content,createdAt FROM chats WHERE userId=? ORDER BY createdAt DESC LIMIT 30').all(user.id)).reverse();
  data.audit=user.role==='admin'?(await db.prepare('SELECT a.*,u.name actor FROM audit a JOIN users u ON u.id=a.userId ORDER BY a.createdAt DESC LIMIT 200').all()):[];
- return send(res,200,{...data,meta:{version:'1.0.0',trashDays:90,mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
+ return send(res,200,{...data,meta:{trashDays:90,mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
  }
  if(path==='/api/search'&&req.method==='GET')return send(res,200,(await search(db,url.searchParams.get('q'))));
  if(path==='/api/chat'&&req.method==='POST'){const b=await body(req);return send(res,200,await (await chat(db,user,b.message)));}

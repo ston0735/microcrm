@@ -104,7 +104,7 @@ test('trash API: admin only, delete is soft, restore works, login clears expired
   const signIn=async(email,password)=>{const r=await call('POST','/api/login',{email,password});assert.equal(r.statusCode,200);return {cookie:r.headers['Set-Cookie'],'x-csrf-token':JSON.parse(r.body).csrf};};
   const admin=await signIn('admin@game.local','GameDemo!2026'),member=await signIn('sales@game.local','SalesDemo!2026');
   const data=JSON.parse((await call('GET','/api/data',undefined,admin)).body);
-  assert.equal(data.meta.version,'1.0.0');assert.equal(data.meta.trashDays,90);
+  assert.equal(data.meta.trashDays,90);
   const company=data.companies.find(c=>data.projects.some(p=>p.companyId===c.id));
   assert.equal((await call('DELETE','/api/records/companies/'+company.id,{version:company.version},member)).statusCode,403);
   assert.equal((await call('GET','/api/trash',undefined,member)).statusCode,403);
