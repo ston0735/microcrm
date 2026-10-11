@@ -3,7 +3,7 @@ import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,fail} from './domain.mjs';
-import {passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject} from './cloud-db.mjs';
+import {passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject,trashRecord,trashList,restoreRecord,purgeBatch,purgeExpired} from './cloud-db.mjs';
 import {search,chat,createDraft,resolveDraft} from './cloud-assistant.mjs';
 import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
 import {quickOpportunity,csvExport} from './workflow.mjs';
@@ -35,7 +35,7 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  const ok=passwordCheck(b.password,u?u.password:DUMMY_HASH);if(!u||!ok){prior.count++;await (await db.prepare('INSERT INTO login_attempts VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET count=EXCLUDED.count,time=EXCLUDED.time').run(key,prior.count,prior.time));fail('帳號或密碼錯誤',401);}
  await (await db.prepare('DELETE FROM login_attempts WHERE id=?').run(key));const id=randomBytes(32).toString('hex'),csrf=randomBytes(24).toString('hex');
  (await db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now()));(await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(id,u.id,csrf,Date.now()+28800000));
- (await audit(db,u.id,'login','users',u.id,null,null));return send(res,200,{user:{id:u.id,name:u.name,role:u.role,email:u.email},csrf},{'Set-Cookie':cookie(id,28800)});
+ (await audit(db,u.id,'login','users',u.id,null,null));try{await transaction(db,()=>purgeExpired(db,u.id));}catch(e){console.error('trash purge failed',e.message);}return send(res,200,{user:{id:u.id,name:u.name,role:u.role,email:u.email},csrf},{'Set-Cookie':cookie(id,28800)});
  }
  if(path.startsWith('/api/')) {
  const s=(await session(req));if(!s)fail('請先登入',401);const user=userOf(s);
@@ -52,7 +52,7 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  data.drafts=(await db.prepare('SELECT * FROM drafts WHERE userId=? ORDER BY createdAt DESC LIMIT 100').all(user.id)).map(d=>({...d,payload:JSON.parse(d.payload)}));
  data.chats=(await db.prepare('SELECT role,content,createdAt FROM chats WHERE userId=? ORDER BY createdAt DESC LIMIT 30').all(user.id)).reverse();
  data.audit=user.role==='admin'?(await db.prepare('SELECT a.*,u.name actor FROM audit a JOIN users u ON u.id=a.userId ORDER BY a.createdAt DESC LIMIT 200').all()):[];
- return send(res,200,{...data,meta:{version:'1.0.0-rc.1',mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',seedDemo:process.env.SEED_DEMO==='1',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
+ return send(res,200,{...data,meta:{version:'1.0.0',trashDays:90,mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
  }
  if(path==='/api/search'&&req.method==='GET')return send(res,200,(await search(db,url.searchParams.get('q'))));
  if(path==='/api/chat'&&req.method==='POST'){const b=await body(req);return send(res,200,await (await chat(db,user,b.message)));}
@@ -90,19 +90,21 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  const file=(await get(db,'files',download[1]));if(!file?.storageKey)fail('檔案不存在',404);
  const entry=await (await db.prepare('SELECT bytes FROM attachments WHERE id=?').get(file.storageKey));if(!entry)fail('檔案不存在',404);const bytes=entry.bytes;res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,'Cache-Control':'no-store'});return res.end(bytes);
  }
- const match=/^\/api\/records\/([a-z]+)(?:\/([^/]+))?$/.exec(path);
+ if(path==='/api/trash'&&req.method==='GET'){admin(user);return send(res,200,await trashList(db));}
+if(path==='/api/trash/restore'&&req.method==='POST'){admin(user);const b=await body(req);if(!ENTITIES.includes(b.type)||typeof b.id!=='string')fail('資料格式錯誤');return send(res,200,await transaction(db,()=>restoreRecord(db,b.type,b.id,user.id)));}
+if(path==='/api/trash/purge'&&req.method==='POST'){admin(user);const b=await body(req);if(!ENTITIES.includes(b.type)||typeof b.id!=='string')fail('資料格式錯誤');return send(res,200,await transaction(db,()=>purgeBatch(db,b.type,b.id,user.id)));}
+const match=/^\/api\/records\/([a-z]+)(?:\/([^/]+))?$/.exec(path);
  if(match&&ENTITIES.includes(match[1])) {
  const [,type,id]=match;
  if(req.method==='GET'&&id){const record=(await get(db,type,id));if(!record)fail('資料不存在',404);return send(res,200,record);}
  if(req.method==='POST'&&!id&&type!=='files'){writable(user);const b=await body(req);return send(res,201,(await transaction(db,async()=>type==='projects'?(await createProject(db,b,user.id)):(await save(db,type,b,user.id)))));}
  if(req.method==='PATCH'&&id){writable(user);const b=await body(req);return send(res,200,(await transaction(db,async()=>(await save(db,type,b,user.id,id,b.version)))));}
- if(req.method==='DELETE'&&id){admin(user);const b=await body(req),before=(await get(db,type,id));if(!before)fail('資料不存在',404);if(b.version!==before.version)fail('資料版本已變更',409);
- (await transaction(db,async()=>{(await db.prepare(`DELETE FROM ${type} WHERE id=?`).run(id));(await db.prepare('DELETE FROM search_index WHERE entity=? AND recordId=?').run(type,id));(await audit(db,user.id,'delete',type,id,before,null));}));if(type==='files'&&before.storageKey)await (await db.prepare('DELETE FROM attachments WHERE id=?').run(before.storageKey));return send(res,200,{ok:true});}
+ if(req.method==='DELETE'&&id){admin(user);const b=await body(req);const r=await transaction(db,()=>trashRecord(db,type,id,user.id,b.version));return send(res,200,{ok:true,...r});}
  }
  fail('找不到此操作',404);
  }
  const assets={'/':'index.html','/app.js':'app.js','/company-form.js':'company-form.js','/style.css':'style.css'};if(!assets[path]||req.method!=='GET')fail('找不到頁面',404);
  const content=readFileSync(join(root,'public',assets[path]));res.writeHead(200,{'Content-Type':path.endsWith('.js')?'text/javascript; charset=utf-8':path.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8'});res.end(content);
- }catch(e){const message=/FOREIGN KEY/.test(e.message)?'此資料有關聯紀錄，請先處理關聯後再刪除':/UNIQUE/.test(e.message)?'資料已存在':e.status?e.message:'伺服器處理失敗';if(!e.status&&!/constraint/i.test(e.message))console.error(e);if(!res.headersSent)send(res,e.status||(/constraint/i.test(e.message)?409:500),{error:message});else res.end();}
+ }catch(e){const message=/foreign key/i.test(e.message)?'此資料有關聯紀錄，請先處理關聯後再刪除':/unique/i.test(e.message)?'資料已存在':e.status?e.message:'伺服器處理失敗';if(!e.status&&!/constraint/i.test(e.message))console.error(e);if(!res.headersSent)send(res,e.status||(/constraint/i.test(e.message)?409:500),{error:message});else res.end();}
 }
 

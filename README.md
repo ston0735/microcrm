@@ -1,6 +1,6 @@
 # 精冠智能 GAME CRM + Pipeline + PMS + AI 助理
 
-可運作的單一團隊 CRM，支援本機 SQLite 與 Vercel PostgreSQL。繁體中文、深色側欄、白色卡片、紫色主題與右側助理。目前為 1.0.0-rc.1 候選版；新增功能、驗收與限制見 V1-RELEASE.md／V1-ACCEPTANCE.md。雲端安裝見 CLOUD.md。
+可運作的單一團隊 CRM，支援本機 SQLite 與 Vercel PostgreSQL。繁體中文、深色側欄、白色卡片、紫色主題與右側助理。目前為 1.0.0 正式版；新增功能、驗收與限制見 V1-RELEASE.md／V1-ACCEPTANCE.md。雲端安裝見 CLOUD.md。
 
 ## 快速啟動
 
