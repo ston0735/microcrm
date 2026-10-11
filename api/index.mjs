@@ -8,7 +8,7 @@ export default async function handler(req,res){
  const result=bufferedResponse();let client;
  try{
   if(!process.env.DATABASE_URL)throw new Error('configuration');
-  const url=new URL(req.url,'https://localhost');const route=req.query?.route||url.searchParams.get('route');if(route)req.url='/api/'+(Array.isArray(route)?route.join('/'):route);
+  const url=new URL(req.url,'https://localhost');const route=req.query?.route||url.searchParams.get('route');if(route){url.searchParams.delete('route');const qs=url.searchParams.toString();req.url='/api/'+(Array.isArray(route)?route.join('/'):route)+(qs?'?'+qs:'');}
   client=new pg.Client({connectionString:process.env.DATABASE_URL,connectionTimeoutMillis:10000});await client.connect();
   await client.query('BEGIN');await client.query('SET LOCAL search_path TO microcrm');
   await client.query("SET LOCAL statement_timeout TO '15000'");
