@@ -10,12 +10,27 @@ export function registryUrl(query){
  const tax=/^\d{8}$/.test(q),url=new URL(BASE+(tax?'5F64D864-61CB-4D0D-8AD9-492047CC1EA6':'6BBA2268-1367-4B42-9CCA-BC17499EBE8C'));
  url.searchParams.set('$format','json');url.searchParams.set('$filter',tax?`Business_Accounting_NO eq ${q}`:`Company_Name like ${q} and Company_Status eq 01`);url.searchParams.set('$skip','0');url.searchParams.set('$top','10');return url;
 }
+const BUSINESS_ID='426D5542-5F05-43EB-83F9-F1300F14E1F1';
+// 商號（獨資／合夥）不在公司登記資料中；僅能以統編查詢「商業登記基本資料」。
+export function businessUrl(taxId){
+ const url=new URL(BASE+BUSINESS_ID);url.searchParams.set('$format','json');url.searchParams.set('$filter',`President_No eq ${taxId}`);url.searchParams.set('$skip','0');url.searchParams.set('$top','5');return url;
+}
+async function fetchRows(url,fetcher){
+ try{const response=await fetcher(url,{signal:AbortSignal.timeout(12000),headers:{Accept:'application/json'},redirect:'error'});if(!response.ok)throw new Error('upstream');const text=await response.text();if(text.length>1000000)throw new Error('size');const rows=text.trim()?JSON.parse(text):[];if(!Array.isArray(rows))throw new Error('shape');return rows;}
+ catch(e){const code=String(e?.cause?.code||e?.code||e?.message||'unknown').slice(0,60);console.error('registry lookup failed',code);fail('經濟部公開資料服務暫時無法查詢（原因代碼：'+code+'）；你仍可手動填寫公司名稱並保存商機。',502);}
+}
 export async function lookupCompany(query,fetcher=fetch){
  const url=registryUrl(query),key=url.href,cached=cache.get(key);if(cached&&cached.expires>Date.now())return {...cached.result,cached:true};
- let rows;
- try{const response=await fetcher(url,{signal:AbortSignal.timeout(12000),headers:{Accept:'application/json'},redirect:'error'});if(!response.ok)throw new Error('upstream');const text=await response.text();if(text.length>1000000)throw new Error('size');rows=text.trim()?JSON.parse(text):[];if(!Array.isArray(rows))throw new Error('shape');}
- catch(e){const code=String(e?.cause?.code||e?.code||e?.message||'unknown').slice(0,60);console.error('registry lookup failed',code);fail('經濟部公開資料服務暫時無法查詢（原因代碼：'+code+'）；你仍可手動填寫公司名稱並保存商機。',502);}
- const result={provider:'經濟部商業發展署',mode:'registry',queriedAt:new Date().toISOString(),source:REGISTRY_SOURCE,candidates:rows.slice(0,10).filter(r=>r.Company_Name&&/^\d{8}$/.test(String(r.Business_Accounting_NO))).map(r=>({name:clean(r.Company_Name),taxId:clean(r.Business_Accounting_NO),address:clean(r.Company_Location),phone:'',website:'',status:clean(r.Company_Status_Desc),sourceUrl:url.href})),notice:'電話與官網未包含在這項公司登記資料中，將保留空白；名稱查詢僅涵蓋營業中的本國公司，多筆結果請自行選擇。'};
+ const q=clean(query),isTax=/^\d{8}$/.test(q);
+ const rows=await fetchRows(url,fetcher);
+ let candidates=rows.slice(0,10).filter(r=>r.Company_Name&&/^\d{8}$/.test(String(r.Business_Accounting_NO))).map(r=>({name:clean(r.Company_Name),taxId:clean(r.Business_Accounting_NO),address:clean(r.Company_Location),phone:'',website:'',status:clean(r.Company_Status_Desc),sourceUrl:url.href}));
+ let notice='電話與官網未包含在這項公司登記資料中，將保留空白；名稱查詢僅涵蓋營業中的本國公司，多筆結果請自行選擇。';
+ if(!candidates.length&&isTax){
+  const bUrl=businessUrl(q),bRows=await fetchRows(bUrl,fetcher);
+  candidates=bRows.slice(0,5).filter(r=>r.Business_Name&&String(r.President_No)===q).map(r=>({name:clean(r.Business_Name),taxId:clean(r.President_No),address:clean(r.Business_Address),phone:'',website:'',status:[clean(r.Business_Current_Status_Desc),clean(r.Business_Organization_Type_Desc)].filter(Boolean).join('・')+'（商號）',sourceUrl:bUrl.href}));
+  if(candidates.length)notice='此統編為商號（商業登記），非公司登記。電話與官網未包含在登記資料中，將保留空白。';
+ }
+ const result={provider:'經濟部商業發展署',mode:'registry',queriedAt:new Date().toISOString(),source:REGISTRY_SOURCE,candidates,notice};
  if(fetcher===fetch){if(cache.size>=100)cache.delete(cache.keys().next().value);cache.set(key,{result,expires:Date.now()+300000});}return result;
 }
 function safeUrl(raw){try{const u=new URL(raw);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}}

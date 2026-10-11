@@ -46,3 +46,11 @@ test('registry empty body (no match) returns no candidates instead of failing',a
  const r=await lookupCompany('不存在的公司名稱',async()=>({ok:true,text:async()=>''}));
  assert.deepEqual(r.candidates,[]);
 });
+
+test('a tax ID that is not a company falls back to business (商號) registration',async()=>{
+ const {lookupCompany}=await import('../company-lookup.mjs');
+ const calls=[];
+ const fake=async url=>{calls.push(String(url));return {ok:true,text:async()=>calls.length===1?'':JSON.stringify([{President_No:'88509353',Business_Name:'冠立機械企業社',Business_Current_Status_Desc:'核准設立',Business_Organization_Type_Desc:'獨資',Business_Address:'臺中市太平區新興二街56巷37號1樓'}])};};
+ const r=await lookupCompany('88509353',fake);
+ assert.equal(calls.length,2);assert.equal(r.candidates[0].name,'冠立機械企業社');assert.equal(r.candidates[0].taxId,'88509353');assert.match(r.candidates[0].status,/商號/);
+});
