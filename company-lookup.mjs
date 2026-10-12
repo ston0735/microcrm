@@ -16,8 +16,17 @@ export function businessUrl(taxId){
  const url=new URL(BASE+BUSINESS_ID);url.searchParams.set('$format','json');url.searchParams.set('$filter',`President_No eq ${taxId}`);url.searchParams.set('$skip','0');url.searchParams.set('$top','5');return url;
 }
 async function fetchRows(url,fetcher){
- try{const response=await fetcher(url,{signal:AbortSignal.timeout(12000),headers:{Accept:'application/json'},redirect:'error'});if(!response.ok)throw new Error('upstream');const text=await response.text();if(text.length>1000000)throw new Error('size');const rows=text.trim()?JSON.parse(text):[];if(!Array.isArray(rows))throw new Error('shape');return rows;}
- catch(e){const code=String(e?.cause?.code||e?.code||e?.message||'unknown').slice(0,60);console.error('registry lookup failed',code);fail('經濟部公開資料服務暫時無法查詢（原因代碼：'+code+'）；你仍可手動填寫公司名稱並保存商機。',502);}
+ // 經濟部 API 偶爾回 5xx／429（或依來源 IP 限流）；失敗時等一下再試一次，並把 HTTP 狀態碼寫入原因代碼方便排查。
+ let lastCode='unknown';
+ for(let attempt=0;attempt<2;attempt++){
+  try{
+   const response=await fetcher(url,{signal:AbortSignal.timeout(10000),headers:{Accept:'application/json'},redirect:'error'});
+   if(!response.ok){lastCode='http_'+response.status;if(attempt===0&&(response.status>=500||response.status===429)){await new Promise(r=>setTimeout(r,800));continue;}throw new Error(lastCode);}
+   const text=await response.text();if(text.length>1000000)throw new Error('size');const rows=text.trim()?JSON.parse(text):[];if(!Array.isArray(rows))throw new Error('shape');return rows;
+  }catch(e){lastCode=String(e?.cause?.code||e?.code||e?.message||'unknown').slice(0,60);if(attempt===0&&!/^http_|^size$|^shape$/.test(lastCode)){await new Promise(r=>setTimeout(r,800));continue;}break;}
+ }
+ console.error('registry lookup failed',lastCode);
+ fail('經濟部公開資料服務暫時無法查詢（原因代碼：'+lastCode+'）；請稍後再按一次查詢，或先手動填寫公司名稱並保存商機。',502);
 }
 export async function lookupCompany(query,fetcher=fetch){
  const url=registryUrl(query),key=url.href,cached=cache.get(key);if(cached&&cached.expires>Date.now())return {...cached.result,cached:true};
