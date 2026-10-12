@@ -16,7 +16,7 @@ export const FIELDS = {
  projects: {name:'專案名稱*',companyId:'公司*',product:'產品*',stage:'階段*',ownerId:'負責人*',dueDate:'交付日期',description:'專案範圍',risks:'風險'},
  tasks: {name:'任務名稱*',opportunityId:'商機',projectId:'專案',ownerId:'負責人*',stage:'狀態*',priority:'優先級',dueDate:'截止日期',description:'內容'},
  visits: {name:'紀錄標題*',companyId:'公司*',opportunityId:'商機',projectId:'專案',date:'日期*',method:'方式*',attendees:'與會人',discussion:'討論內容*',needs:'需求',competitors:'競品',intent:'意向',budget:'預算（TWD）',nextStep:'下一步',followUpAt:'跟進時間',ownerId:'負責人*'},
- meetings: {name:'會議名稱*',companyId:'公司*',opportunityId:'商機',projectId:'專案',date:'日期*',attendees:'與會人',transcript:'原始逐字稿',summary:'摘要',decisions:'決議',changes:'變更',risks:'風險',todos:'待辦',ownerId:'負責人*'},
+ meetings: {name:'會議名稱*',companyId:'公司*',opportunityId:'商機',projectId:'專案',date:'日期*',attendees:'與會人',transcript:'會議紀錄全文（可直接貼上）',summary:'摘要',decisions:'決議',changes:'變更',risks:'風險',todos:'待辦',ownerId:'負責人*'},
  milestones: {name:'里程碑名稱*',projectId:'專案*',stage:'狀態*',dueDate:'預定完成日',description:'驗收條件'},
  files: {name:'檔案名稱*',companyId:'公司',opportunityId:'商機',projectId:'專案',visitId:'拜訪紀錄',meetingId:'會議紀錄',description:'說明'}
 };

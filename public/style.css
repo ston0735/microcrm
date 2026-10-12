@@ -6,3 +6,5 @@
 
 
 .versionbtn{border:0;background:transparent;padding:0;color:#a998e9;font-size:11px;text-decoration:underline dotted;text-underline-offset:3px}.versionbtn:hover{color:#d6ccff;border:0}
+
+.meetingnote{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:white}.meetingnote summary{cursor:pointer}.meetingnote[open] summary{margin-bottom:8px}.meetingpart{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}.meetingpart small{display:block;margin-bottom:3px}
