@@ -138,3 +138,27 @@ export async function clearDemo(db,user){
  const removed=await purgeRows(db,seeds);await db.prepare('DELETE FROM demo_records').run();
  return {removed};
 }
+
+// ---------- Customer document area ----------
+// A file attached to a meeting, visit, deal, project or ticket belongs to that record's customer.
+const PARENTS={meetingId:'meetings',visitId:'visits',opportunityId:'opportunities',projectId:'projects'};
+export async function inheritCompany(db,input,before={}){
+ if(input.companyId||before.companyId&&input.companyId===undefined)return input;
+ for(const [field,table] of Object.entries(PARENTS)){const id=input[field]??before[field];if(!id)continue;const parent=await get(db,table,id);if(parent?.companyId){input.companyId=parent.companyId;break;}}
+ return input;
+}
+const MEETING_TEXT=['name','transcript','summary','decisions','changes','risks','todos'];
+const stem=n=>String(n||'').replace(/\.[A-Za-z0-9]{1,5}$/,'').trim();
+// Existing documents named in a meeting are filed under the meeting's customer automatically.
+export async function linkMentionedFiles(db,meeting,userId){
+ if(!meeting?.companyId)return [];
+ const text=MEETING_TEXT.map(k=>meeting[k]||'').join('\n').toLowerCase();const linked=[];
+ for(const f of await list(db,'files')){
+  if(f.companyId&&f.companyId!==meeting.companyId)continue;
+  const name=String(f.name||'').toLowerCase(),s=stem(f.name).toLowerCase();
+  if(!(name&&text.includes(name))&&!(s.length>=3&&text.includes(s)))continue;
+  if(f.companyId===meeting.companyId&&f.meetingId)continue;
+  try{linked.push(await save(db,'files',{companyId:meeting.companyId,meetingId:f.meetingId||meeting.id},userId,f.id,f.version));}catch{/* links that would conflict with another customer's record are skipped */}
+ }
+ return linked;
+}

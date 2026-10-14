@@ -3,7 +3,7 @@ import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,STAGES,OPTIONS,MULTI,NUMBERS,fail} from './domain.mjs';
-import {getSettings,saveSettings,setDepartment,DEPARTMENTS,nextQuoteNo,checkStockMove,schedulePm,loadDemo,clearDemo} from './service.mjs';
+import {getSettings,saveSettings,setDepartment,DEPARTMENTS,nextQuoteNo,checkStockMove,schedulePm,loadDemo,clearDemo,inheritCompany,linkMentionedFiles} from './service.mjs';
 import {passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject,trashRecord,trashList,restoreRecord,purgeBatch,purgeExpired} from './cloud-db.mjs';
 import {search,chat,createDraft,resolveDraft} from './cloud-assistant.mjs';
 import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
@@ -83,7 +83,7 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  writable(user);const b=await body(req);if(typeof b.content!=='string'||!/^[A-Za-z0-9+/]*={0,2}$/.test(b.content))fail('檔案格式錯誤');
  const bytes=Buffer.from(b.content,'base64');if(bytes.length>3*1024*1024)fail('檔案上限 3 MB',413);
  const name=String(b.name||'').replace(/[\\/\x00-\x1f]/g,'_').slice(0,180);if(!name)fail('請選擇檔案');
- const storageKey=randomUUID();await (await db.prepare('INSERT INTO attachments VALUES(?,?)').run(storageKey,bytes));
+ await inheritCompany(db,b);const storageKey=randomUUID();await (await db.prepare('INSERT INTO attachments VALUES(?,?)').run(storageKey,bytes));
  const text=/\.(txt|md|csv|json|log)$/i.test(name)?bytes.toString('utf8').slice(0,250000):'';
  try {const r=(await transaction(db,async()=>(await save(db,'files',{...b,name},user.id,null,null,{storageKey,size:bytes.length,contentType:'application/octet-stream',extractedText:text}))));return send(res,201,r);}catch(e){await (await db.prepare('DELETE FROM attachments WHERE id=?').run(storageKey));throw e;}
  }
@@ -106,8 +106,8 @@ const match=/^\/api\/records\/([a-z]+)(?:\/([^/]+))?$/.exec(path);
  if(match&&ENTITIES.includes(match[1])) {
  const [,type,id]=match;
  if(req.method==='GET'&&id){const record=(await get(db,type,id));if(!record)fail('資料不存在',404);return send(res,200,record);}
- if(req.method==='POST'&&!id&&type!=='files'){writable(user);const b=await body(req);if(type==='quotes')b.quoteNo=await nextQuoteNo(db,b.quoteDate);if(type==='stockmoves')await checkStockMove(db,b,null);return send(res,201,(await transaction(db,async()=>type==='projects'?(await createProject(db,b,user.id)):(await save(db,type,b,user.id)))));}
- if(req.method==='PATCH'&&id){writable(user);const b=await body(req);if(type==='quotes')delete b.quoteNo;if(type==='stockmoves')await checkStockMove(db,b,id);return send(res,200,(await transaction(db,async()=>(await save(db,type,b,user.id,id,b.version)))));}
+ if(req.method==='POST'&&!id&&type!=='files'){writable(user);const b=await body(req);if(type==='quotes')b.quoteNo=await nextQuoteNo(db,b.quoteDate);if(type==='stockmoves')await checkStockMove(db,b,null);return send(res,201,(await transaction(db,async()=>{const r=type==='projects'?(await createProject(db,b,user.id)):(await save(db,type,b,user.id));if(type==='meetings')r.linkedFiles=(await linkMentionedFiles(db,r,user.id)).length;return r;})));}
+ if(req.method==='PATCH'&&id){writable(user);const b=await body(req);if(type==='quotes')delete b.quoteNo;if(type==='stockmoves')await checkStockMove(db,b,id);if(type==='files')await inheritCompany(db,b,await get(db,'files',id)||{});return send(res,200,(await transaction(db,async()=>{const r=await save(db,type,b,user.id,id,b.version);if(type==='meetings')r.linkedFiles=(await linkMentionedFiles(db,r,user.id)).length;return r;})));}
  if(req.method==='DELETE'&&id){admin(user);const b=await body(req);const r=await transaction(db,()=>trashRecord(db,type,id,user.id,b.version));return send(res,200,{ok:true,...r});}
  }
  fail('找不到此操作',404);
