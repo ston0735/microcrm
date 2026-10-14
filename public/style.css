@@ -8,3 +8,15 @@
 .versionbtn{border:0;background:transparent;padding:0;color:#a998e9;font-size:11px;text-decoration:underline dotted;text-underline-offset:3px}.versionbtn:hover{color:#d6ccff;border:0}
 
 .meetingnote{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:white}.meetingnote summary{cursor:pointer}.meetingnote[open] summary{margin-bottom:8px}.meetingpart{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}.meetingpart small{display:block;margin-bottom:3px}
+
+/* v1.3 cross-department modules */
+.nav .navlabel{margin:18px 12px 6px}.nav .navlabel:first-child{margin-top:22px}.sidebar{overflow-y:auto}
+.viewas{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}.viewas select{width:auto;padding:5px 8px;font-size:12px}
+.checks{display:flex;flex-wrap:wrap;gap:6px 14px;padding:8px 0}.checks label{display:flex;align-items:center;gap:5px;font-size:12px}.checks input{width:auto}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}.chip{font-size:11px;padding:3px 8px;border-radius:12px}
+.mic{font-size:11px;padding:2px 8px;margin-left:6px;border-radius:12px}.mic.recording{background:#fff0ed;color:#c0392b;border-color:#e3a497}
+.stepper{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:6px 0 14px}.stepper div{text-align:center;font-size:11px;color:var(--muted);padding-top:8px;border-top:4px solid #e7e4ef}.stepper span{display:block;font-weight:700}.stepper .done{border-color:#9c86f1;color:var(--ink)}.stepper .now{border-color:#7357e8;color:#7357e8;font-weight:700}
+.kbbox{background:#faf8ff;border:1px solid #e2d9ff;border-radius:10px;padding:16px;margin-top:18px}
+.previews{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}.preview .mail{border:1px solid var(--border);border-radius:8px;padding:14px;background:white;margin-top:4px}.preview.desktop{flex:1;min-width:260px}.preview.mobile{width:300px}.preview.mobile .mail{font-size:12px}
+@media(max-width:700px){.stepper{grid-template-columns:repeat(5,minmax(0,1fr))}.viewas{display:none}}
+.fieldhead{display:flex;align-items:center;justify-content:space-between;gap:8px}.fieldhead .mic{width:auto;flex:0 0 auto}td:last-child>button{white-space:nowrap}.barrow b{text-align:right;white-space:nowrap}

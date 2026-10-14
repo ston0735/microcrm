@@ -23,12 +23,17 @@ export async function initialize(client) {
   const refs=Object.keys(FIELDS[type]).filter(k=>REF[k]).map(k=>`"${k}" TEXT REFERENCES ${REF[k]}(id)`);
   await client.query(`CREATE TABLE IF NOT EXISTS ${type}(id TEXT PRIMARY KEY,payload TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,"createdAt" TEXT NOT NULL,"updatedAt" TEXT NOT NULL${refs.length?','+refs.join(','):''}${type==='projects'?',"sourceOpportunityId" TEXT UNIQUE REFERENCES opportunities(id)':''});`);
   // Trash: soft-deleted rows keep their data; "trashRoot" names the record whose deletion moved them (type:id).
+  // Reference columns added after a table was first created (additive, never destructive).
+  for(const k of Object.keys(FIELDS[type]).filter(k=>REF[k]))await client.query(`ALTER TABLE ${type} ADD COLUMN IF NOT EXISTS "${k}" TEXT REFERENCES ${REF[k]}(id)`);
   await client.query(`ALTER TABLE ${type} ADD COLUMN IF NOT EXISTS "deletedAt" TEXT; ALTER TABLE ${type} ADD COLUMN IF NOT EXISTS "trashRoot" TEXT; CREATE INDEX IF NOT EXISTS ${type}_deleted_idx ON ${type}("deletedAt");`);
  }
+ await client.query(`CREATE TABLE IF NOT EXISTS user_departments("userId" TEXT PRIMARY KEY REFERENCES users(id),department TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS demo_records(entity TEXT NOT NULL,"recordId" TEXT NOT NULL,PRIMARY KEY(entity,"recordId"));`);
  await client.query('CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY,bytes BYTEA NOT NULL); CREATE TABLE IF NOT EXISTS search_index(entity TEXT NOT NULL,"recordId" TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(entity,"recordId"));');
 }
 // Preserve camelCase fields used by the shared API when PostgreSQL parses identifiers.
-export function quoteSql(q){return q.replace(/\b(userId|recordId|createdAt|updatedAt|companyId|opportunityId|projectId|visitId|meetingId|ownerId|sourceOpportunityId|deletedAt|trashRoot)\b/g,'"$1"');}
+export function quoteSql(q){return q.replace(/\b(userId|recordId|createdAt|updatedAt|companyId|opportunityId|projectId|visitId|meetingId|ownerId|sourceOpportunityId|deletedAt|trashRoot|leadOwnerId|instrumentId|contractId|ticketId|productId|contactId)\b/g,'"$1"');}
 export function postgresAdapter(client){const base=adapter(client);return {...base,prepare:q=>base.prepare(quoteSql(q))};}
 export const unpack=r=>r?{...JSON.parse(r.payload),id:r.id,version:r.version,createdAt:r.createdAt,updatedAt:r.updatedAt}:null;
 // Records in the trash are invisible to every normal read.
@@ -73,7 +78,7 @@ export const TRASH_DAYS=90;
 // Every parent/child link between entity tables (users are never deleted, so they are skipped).
 const CHILD_EDGES=(()=>{const edges=[];for(const child of ENTITIES)for(const column of Object.keys(FIELDS[child]))if(REF[column]&&REF[column]!=='users')edges.push({child,column,parent:REF[column]});edges.push({child:'projects',column:'sourceOpportunityId',parent:'opportunities'});return edges;})();
 // Children first, so foreign keys never block a permanent delete.
-const PURGE_ORDER=['files','tasks','milestones','meetings','visits','projects','opportunities','contacts','companies'];
+const PURGE_ORDER=['stockmoves','files','tasks','milestones','meetings','visits','tickets','quotes','contracts','instruments','projects','opportunities','contacts','companies','products','articles','campaigns'];
 const chunks=(items,size=400)=>{const out=[];for(let i=0;i<items.length;i+=size)out.push(items.slice(i,i+size));return out;};
 const marks=ids=>ids.map(()=>'?').join(',');
 const byType=(rows,type)=>rows.filter(x=>x.type===type).map(x=>x.id);
@@ -126,7 +131,7 @@ export async function restoreRecord(db,type,id,userId){
  return {restored};
 }
 // Permanently remove the given rows plus everything that depends on them, in foreign-key-safe order.
-async function purgeRows(db,seeds){
+export async function purgeRows(db,seeds){
  const all=await closure(db,seeds,false);let removed=0;
  for(const t of PURGE_ORDER)for(const part of chunks(byType(all,t))){
   if(t==='files'){const keys=(await db.prepare(`SELECT payload FROM files WHERE id IN (${marks(part)})`).all(...part)).map(r=>JSON.parse(r.payload).storageKey).filter(Boolean);for(const k of chunks(keys))await db.prepare(`DELETE FROM attachments WHERE id IN (${marks(k)})`).run(...k);}

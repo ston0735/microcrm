@@ -3,7 +3,8 @@ import {readFileSync,writeFileSync,mkdirSync,existsSync,unlinkSync} from 'node:f
 import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,randomBytes} from 'node:crypto';
-import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,fail} from './domain.mjs';
+import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,STAGES,OPTIONS,MULTI,NUMBERS,fail} from './domain.mjs';
+import {SETTING_DEFAULTS,DEPARTMENTS} from './service.mjs';
 import {openDatabase,seed,passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject} from './db.mjs';
 import {search,chat,createDraft,resolveDraft} from './assistant.mjs';
 import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
@@ -29,6 +30,7 @@ const server=http.createServer(async(req,res)=>{
  if(origin && origin!==`${process.env.COOKIE_SECURE==='1'?'https':'http'}://${req.headers.host}`)fail('來源驗證失敗',403);
  if(req.headers['content-type']?.split(';')[0]!=='application/json')fail('請使用 JSON',415);
  }
+ if(path==='/api/brand'&&req.method==='GET')return send(res,200,SETTING_DEFAULTS);
  if(path==='/api/login'&&req.method==='POST') {
  const key=req.socket.remoteAddress,prior=attempts.get(key)||{count:0,time:Date.now()};
  if(Date.now()-prior.time>600000){prior.count=0;prior.time=Date.now();}if(prior.count>=15)fail('嘗試過於頻繁，請稍後再試',429);
@@ -54,7 +56,7 @@ const server=http.createServer(async(req,res)=>{
  data.drafts=db.prepare('SELECT * FROM drafts WHERE userId=? ORDER BY createdAt DESC LIMIT 100').all(user.id).map(d=>({...d,payload:JSON.parse(d.payload)}));
  data.chats=db.prepare('SELECT role,content,createdAt FROM chats WHERE userId=? ORDER BY createdAt DESC LIMIT 30').all(user.id).reverse();
  data.audit=user.role==='admin'?db.prepare('SELECT a.*,u.name actor FROM audit a JOIN users u ON u.id=a.userId ORDER BY a.createdAt DESC LIMIT 200').all():[];
- return send(res,200,{...data,meta:{version:'1.0.0-rc.1',mode:process.env.OPENAI_API_KEY?'live':'demo',seedDemo:process.env.SEED_DEMO!=='0',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
+ return send(res,200,{...data,meta:{version:'1.0.0-rc.1',mode:process.env.OPENAI_API_KEY?'live':'demo',seedDemo:process.env.SEED_DEMO!=='0',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES,stages:STAGES,options:OPTIONS,multi:MULTI,numbers:NUMBERS,departments:DEPARTMENTS,settings:SETTING_DEFAULTS,demoLoaded:false}});
  }
  if(path==='/api/search'&&req.method==='GET')return send(res,200,search(db,url.searchParams.get('q')));
  if(path==='/api/chat'&&req.method==='POST'){const b=await body(req);return send(res,200,await chat(db,user,b.message));}

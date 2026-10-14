@@ -19,6 +19,8 @@ export function openDatabase(directory) {
    const refs=Object.keys(FIELDS[type]).filter(k=>REF[k]).map(k=>`${k} TEXT REFERENCES ${REF[k]}(id)`).join(',');
    db.exec(`CREATE TABLE IF NOT EXISTS ${type}(id TEXT PRIMARY KEY,payload TEXT NOT NULL,version INTEGER NOT NULL DEFAULT 1,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL,deletedAt TEXT,trashRoot TEXT${refs?','+refs:''}${type==='projects'?',sourceOpportunityId TEXT UNIQUE REFERENCES opportunities(id)':''});`);
  }
+ for (const type of ENTITIES) for (const k of Object.keys(FIELDS[type]).filter(k=>REF[k])) { try { db.exec(`ALTER TABLE ${type} ADD COLUMN ${k} TEXT REFERENCES ${REF[k]}(id)`); } catch {} }
+ db.exec(`CREATE TABLE IF NOT EXISTS user_departments(userId TEXT PRIMARY KEY REFERENCES users(id),department TEXT NOT NULL); CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS demo_records(entity TEXT NOT NULL,recordId TEXT NOT NULL,PRIMARY KEY(entity,recordId));`);
  db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(entity UNINDEXED,recordId UNINDEXED,body,tokenize='trigram'); CREATE INDEX IF NOT EXISTS audit_time ON audit(createdAt);`);
  return db;
 }

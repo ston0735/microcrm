@@ -2,7 +2,8 @@ import {readFileSync} from 'node:fs';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID,randomBytes} from 'node:crypto';
-import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,fail} from './domain.mjs';
+import {ENTITIES,FIELDS,SALES,PROJECT,TASK,PRODUCTS,TEMPLATES,STAGES,OPTIONS,MULTI,NUMBERS,fail} from './domain.mjs';
+import {getSettings,saveSettings,setDepartment,DEPARTMENTS,nextQuoteNo,checkStockMove,schedulePm,loadDemo,clearDemo} from './service.mjs';
 import {passwordCheck,passwordHash,list,get,save,audit,transaction,convert,createProject,trashRecord,trashList,restoreRecord,purgeBatch,purgeExpired} from './cloud-db.mjs';
 import {search,chat,createDraft,resolveDraft} from './cloud-assistant.mjs';
 import {lookupCompany,enrichCompany,limitLookup} from './company-lookup.mjs';
@@ -13,12 +14,12 @@ const DUMMY_HASH=passwordHash(randomBytes(16).toString('hex'));
 function send(res,status,data,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(data));}
 async function body(req){if(req.body!==undefined)return typeof req.body==='string'?JSON.parse(req.body):req.body;let bytes=0,chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>8*1024*1024)fail('請求超過 8 MB',413);chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString()||'{}');}catch{fail('JSON 格式錯誤');}}
 
-const userOf=s=>({id:s.userId,name:s.name,email:s.email,role:s.role});
+const userOf=s=>({id:s.userId,name:s.name,email:s.email,role:s.role,department:s.department||''});
 function writable(user){if(user.role==='viewer')fail('此帳號僅可檢視',403);}
 function admin(user){if(user.role!=='admin')fail('僅管理員可操作',403);}
 const cookie=(id,max)=>`sid=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${max}${process.env.COOKIE_SECURE==='1'?'; Secure':''}`;
 export async function handle(req,res,db){
-async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cookie||'')?.[1];if(!id)return null;return (await db.prepare('SELECT s.*,u.name,u.email,u.role FROM sessions s JOIN users u ON u.id=s.userId WHERE s.id=? AND s.expires>?').get(id,Date.now()));}
+async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cookie||'')?.[1];if(!id)return null;return (await db.prepare('SELECT s.*,u.name,u.email,u.role,d.department FROM sessions s JOIN users u ON u.id=s.userId LEFT JOIN user_departments d ON d.userId=u.id WHERE s.id=? AND s.expires>?').get(id,Date.now()));}
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Referrer-Policy','same-origin');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
  try {
  const url=new URL(req.url,'http://localhost');const path=url.pathname;
@@ -37,6 +38,7 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  (await db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now()));(await db.prepare('INSERT INTO sessions VALUES(?,?,?,?)').run(id,u.id,csrf,Date.now()+28800000));
  (await audit(db,u.id,'login','users',u.id,null,null));try{await transaction(db,()=>purgeExpired(db,u.id));}catch(e){console.error('trash purge failed',e.message);}return send(res,200,{user:{id:u.id,name:u.name,role:u.role,email:u.email},csrf},{'Set-Cookie':cookie(id,28800)});
  }
+ if(path==='/api/brand'&&req.method==='GET'){const st=await getSettings(db);return send(res,200,{brandMark:st.brandMark,brandName:st.brandName,brandTagline:st.brandTagline});}
  if(path.startsWith('/api/')) {
  const s=(await session(req));if(!s)fail('請先登入',401);const user=userOf(s);
  if(!['GET','HEAD'].includes(req.method)&&req.headers['x-csrf-token']!==s.csrf)fail('安全驗證失敗，請重新登入',403);
@@ -48,11 +50,11 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  const exp=/^\/api\/export\/([a-z]+)$/.exec(path);if(exp&&req.method==='GET'&&ENTITIES.includes(exp[1])){admin(user);res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="${exp[1]}.csv"`,'Cache-Control':'no-store'});return res.end(csvExport(exp[1],await list(db,exp[1])));}
  if(path==='/api/data'&&req.method==='GET') {
  const data={};for(const t of ENTITIES)data[t]=await (await list(db,t));
- data.users=(await db.prepare('SELECT id,name,email,role FROM users ORDER BY name').all());
+ data.users=(await db.prepare('SELECT u.id,u.name,u.email,u.role,d.department FROM users u LEFT JOIN user_departments d ON d.userId=u.id ORDER BY u.name').all());
  data.drafts=(await db.prepare('SELECT * FROM drafts WHERE userId=? ORDER BY createdAt DESC LIMIT 100').all(user.id)).map(d=>({...d,payload:JSON.parse(d.payload)}));
  data.chats=(await db.prepare('SELECT role,content,createdAt FROM chats WHERE userId=? ORDER BY createdAt DESC LIMIT 30').all(user.id)).reverse();
  data.audit=user.role==='admin'?(await db.prepare('SELECT a.*,u.name actor FROM audit a JOIN users u ON u.id=a.userId ORDER BY a.createdAt DESC LIMIT 200').all()):[];
- return send(res,200,{...data,meta:{trashDays:90,mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES}});
+ return send(res,200,{...data,meta:{trashDays:90,mode:process.env.OPENAI_API_KEY?'live':'demo',uploadLimitMb:3,storage:'PostgreSQL',fields:FIELDS,sales:SALES,project:PROJECT,task:TASK,products:PRODUCTS,templates:TEMPLATES,stages:STAGES,options:OPTIONS,multi:MULTI,numbers:NUMBERS,departments:DEPARTMENTS,settings:await getSettings(db),demoLoaded:!!(await db.prepare('SELECT entity FROM demo_records LIMIT 1').get())}});
  }
  if(path==='/api/search'&&req.method==='GET')return send(res,200,(await search(db,url.searchParams.get('q'))));
  if(path==='/api/chat'&&req.method==='POST'){const b=await body(req);return send(res,200,await (await chat(db,user,b.message)));}
@@ -90,6 +92,13 @@ async function session(req){const id=/\bsid=([a-f0-9]+)\b/.exec(req.headers.cook
  const file=(await get(db,'files',download[1]));if(!file?.storageKey)fail('檔案不存在',404);
  const entry=await (await db.prepare('SELECT bytes FROM attachments WHERE id=?').get(file.storageKey));if(!entry)fail('檔案不存在',404);const bytes=entry.bytes;res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,'Cache-Control':'no-store'});return res.end(bytes);
  }
+ if(path==='/api/settings'&&req.method==='POST'){admin(user);const b=await body(req);const r=await saveSettings(db,b);await audit(db,user.id,'settings_update','settings',null,null,r);return send(res,200,r);}
+ const deptMatch=/^\/api\/users\/([^/]+)\/department$/.exec(path);
+ if(deptMatch&&req.method==='POST'){admin(user);const b=await body(req);await setDepartment(db,deptMatch[1],b.department);await audit(db,user.id,'department_change','users',deptMatch[1],null,{department:b.department});return send(res,200,{ok:true});}
+ const pmMatch=/^\/api\/contracts\/([^/]+)\/schedule-pm$/.exec(path);
+ if(pmMatch&&req.method==='POST'){writable(user);return send(res,201,await transaction(db,()=>schedulePm(db,pmMatch[1],user.id)));}
+ if(path==='/api/demo/load'&&req.method==='POST'){admin(user);return send(res,201,await transaction(db,()=>loadDemo(db,user)));}
+ if(path==='/api/demo/clear'&&req.method==='POST'){admin(user);const r=await transaction(db,()=>clearDemo(db,user));await audit(db,user.id,'demo_clear','demo',null,null,r);return send(res,200,r);}
  if(path==='/api/trash'&&req.method==='GET'){admin(user);return send(res,200,await trashList(db));}
 if(path==='/api/trash/restore'&&req.method==='POST'){admin(user);const b=await body(req);if(!ENTITIES.includes(b.type)||typeof b.id!=='string')fail('資料格式錯誤');return send(res,200,await transaction(db,()=>restoreRecord(db,b.type,b.id,user.id)));}
 if(path==='/api/trash/purge'&&req.method==='POST'){admin(user);const b=await body(req);if(!ENTITIES.includes(b.type)||typeof b.id!=='string')fail('資料格式錯誤');return send(res,200,await transaction(db,()=>purgeBatch(db,b.type,b.id,user.id)));}
@@ -97,8 +106,8 @@ const match=/^\/api\/records\/([a-z]+)(?:\/([^/]+))?$/.exec(path);
  if(match&&ENTITIES.includes(match[1])) {
  const [,type,id]=match;
  if(req.method==='GET'&&id){const record=(await get(db,type,id));if(!record)fail('資料不存在',404);return send(res,200,record);}
- if(req.method==='POST'&&!id&&type!=='files'){writable(user);const b=await body(req);return send(res,201,(await transaction(db,async()=>type==='projects'?(await createProject(db,b,user.id)):(await save(db,type,b,user.id)))));}
- if(req.method==='PATCH'&&id){writable(user);const b=await body(req);return send(res,200,(await transaction(db,async()=>(await save(db,type,b,user.id,id,b.version)))));}
+ if(req.method==='POST'&&!id&&type!=='files'){writable(user);const b=await body(req);if(type==='quotes')b.quoteNo=await nextQuoteNo(db,b.quoteDate);if(type==='stockmoves')await checkStockMove(db,b,null);return send(res,201,(await transaction(db,async()=>type==='projects'?(await createProject(db,b,user.id)):(await save(db,type,b,user.id)))));}
+ if(req.method==='PATCH'&&id){writable(user);const b=await body(req);if(type==='quotes')delete b.quoteNo;if(type==='stockmoves')await checkStockMove(db,b,id);return send(res,200,(await transaction(db,async()=>(await save(db,type,b,user.id,id,b.version)))));}
  if(req.method==='DELETE'&&id){admin(user);const b=await body(req);const r=await transaction(db,()=>trashRecord(db,type,id,user.id,b.version));return send(res,200,{ok:true,...r});}
  }
  fail('找不到此操作',404);
